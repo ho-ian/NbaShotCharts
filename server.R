@@ -156,7 +156,8 @@ shinyServer(function(input, output) {
          in this web app, please visit the github page for the source code and contribute if you would like.</h4></br>
          <h3><strong>Contributors:</strong></h3></br>
          </br>
-         <h3><strong>Github Page:</strong></h3></br>")
+         <h3><strong>Github Page:</strong></h3></br>
+         <a href='https://github.com/ho-ian/NbaShotCharts'>Link</a>")
     
   })
   
