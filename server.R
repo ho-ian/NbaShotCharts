@@ -3,13 +3,9 @@ library(shiny)
 library(ggplot2)
 library(jsonlite)
 library(dplyr)
-
-roster_url = "https://stats.nba.com/stats/commonteamroster?LeagueID=&Season=////&TeamID=///"
-shotchart_url = "https://stats.nba.com/stats/shotchartdetail?AheadBehind=&ClutchTime=&ContextFilter=&
-ContextMeasure=FGA&DateFrom=&DateTo=&EndPeriod=&EndRange=&GameID=&GameSegment=&LastNGames=0&LeagueID=00&
-Location=&Month=0&OpponentTeamID=0&Outcome=&Period=0&PlayerID=//////&PlayerPosition=&PointDiff=&Position=&
-RangeType=&RookieYear=&Season=/////&SeasonSegment=&SeasonType=////&StartPeriod=&StartRange=&
-TeamID=///&VsConference=&VsDivision="
+library(nbastatR)
+library(rvest)
+library(xml2)
 
 drawHalfCourt = function() {
     #source: https://gist.github.com/edkupfer/6354964
@@ -54,48 +50,32 @@ drawHalfCourt = function() {
     )
 }
 
-getRoster = function(season,team, url) {
-  url = gsub("////", season, url)
-  url = gsub("///", team, url)
+getRoster = function(season, team) {
+  team_info = team_season_roster(team=team, season=season, return_message=T)
   
-  team_info = read_json(url, simplifyVector = TRUE) # don't overuse
-  header = team_info[[3]][[2]][[1]]
-  team_info = as.data.frame(team_info[[3]][[3]][[1]])
-  names(team_info) = header
-  
-  info_keep = c("PLAYER", "POSITION", "HEIGHT", "WEIGHT", "PLAYER_ID")
+  info_keep = c("namePlayer", "groupPosition", "heightInches", "weightLBS")
   team_info = select(team_info, info_keep)
   return (team_info)
   
 }
 
-getShotChart = function(player, season, type, team, url, shot_zone_basic) {
-  url = gsub("//////", player, url)
-  url = gsub("/////", season, url)
-  url = gsub("////", type, url)
-  url = gsub("///", team, url)
-  
-  shot_chart = read_json(url, simplifyVector=TRUE)
-  header = shot_chart[[3]][[2]][[1]]
-  shot_chart = as.data.frame(shot_chart[[3]][[3]][[1]])
-  
+getShotChart = function(player, season, type, team, shot_zone_basic) {
+  shot_chart = teams_shots(teams=team, measures="FGA", seasons=season, season_types=type, return_message=T)
   
   if (length(shot_chart) == 0) {
     return (shot_chart)
   }
-  names(shot_chart) = header
   
-  info_keep = c("PLAYER_NAME", "PERIOD", "MINUTES_REMAINING", 
-                "SECONDS_REMAINING","SHOT_ZONE_BASIC", "SHOT_DISTANCE",
-                "LOC_X", "LOC_Y", "SHOT_MADE_FLAG")
+  info_keep = c("namePlayer", "nameTeam", "numberPeriod", "minutesRemaining",
+                "secondsRemaining","zoneBasic", "locationX", "locationY", "isShotMade")
   
+  shot_chart = shot_chart[shot_chart$namePlayer == player,]
   shot_chart = select(shot_chart, info_keep)
-  shot_chart = shot_chart[shot_chart$SHOT_ZONE_BASIC %in% shot_zone_basic,]
-  shot_chart$SHOT_MADE_FLAG = as.numeric(as.character(shot_chart$SHOT_MADE_FLAG))
-  shot_chart$LOC_X = as.numeric(as.character(shot_chart$LOC_X))/10
-  shot_chart$LOC_Y = as.numeric(as.character(shot_chart$LOC_Y))/10
+  shot_chart = shot_chart[shot_chart$zoneBasic %in% shot_zone_basic,]
+  shot_chart$locationX = as.numeric(as.character(shot_chart$locationX))/10
+  shot_chart$locationY = as.numeric(as.character(shot_chart$locationY))/10
 
-  shot_chart$LOC_Y = 37 - shot_chart$LOC_Y #flip it bc they consider the rim as (0,0) but my rim is (0,37)
+  shot_chart$locationY = 37 - shot_chart$locationY #flip it bc they consider the rim as (0,0) but my rim is (0,37)
   
   return (shot_chart)
 }
@@ -103,34 +83,35 @@ getShotChart = function(player, season, type, team, url, shot_zone_basic) {
 shinyServer(function(input, output) {
   
   output$playerList <- renderUI({
-    ti = getRoster(input$season, input$team, roster_url)
-    selectInput("players", "Player:", setNames(as.list(ti$PLAYER_ID), ti$PLAYER), selected="201939") #default to stephen curry
+    ti = getRoster(as.numeric(input$season), input$team)
+    selectInput("players", "Player:", as.list(ti$namePlayer), selected="Stephen Curry") #default to stephen curry
   })
    
   output$shotChartPlot <- renderPlot({
     
     hc = drawHalfCourt()
-    sc = getShotChart(input$players, input$season, input$type, input$team, shotchart_url, input$shot_zone_basic)
+    sc = getShotChart(input$players, as.numeric(input$season), input$type, input$team, input$shot_zone_basic)
+    #head(sc)
     
     if (length(sc)!=0) {
-      sctitle = paste(sc[1,"PLAYER_NAME"], "Shot Chart Details", sep=" ")
+      sctitle = paste(sc[1,"namePlayer"], "Shot Chart Details", sep=" ")
       if (input$makemiss == "makes") {
-        makes = sc[sc$SHOT_MADE_FLAG == 1,]
-        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = makes, mapping=aes(x=LOC_X, y=LOC_Y),alpha=0.75,shape="circle open", size=1.5, col="chartreuse3")+
+        makes = sc[sc$isShotMade,]
+        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = makes, mapping=aes(x=locationX, y=locationY),alpha=0.75,shape="circle open", size=1.5, col="chartreuse3")+
           ggtitle(sctitle) + theme(plot.title = element_text(face="bold",size=30,hjust=0.5), legend.position = "none")
       }
       
       else if (input$makemiss == "misses") {
-        misses = sc[sc$SHOT_MADE_FLAG == 0,]
-        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = misses, mapping=aes(x=LOC_X, y=LOC_Y),alpha=0.75,shape="cross", size=1.5, col="firebrick1")+
+        misses = sc[!sc$isShotMade,]
+        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = misses, mapping=aes(x=locationX, y=locationY),alpha=0.75,shape="cross", size=1.5, col="firebrick1")+
           ggtitle(sctitle) + theme(plot.title = element_text(face="bold",size=30,hjust=0.5), legend.position = "none")
       }
       
       else {
-        makes = sc[sc$SHOT_MADE_FLAG == 1,]
-        misses = sc[sc$SHOT_MADE_FLAG == 0,]
-        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = misses, mapping=aes(x=LOC_X, y=LOC_Y),alpha=0.75,shape="cross", size=1.5, col="firebrick1")+
-          geom_point(data = makes, mapping=aes(x=LOC_X, y=LOC_Y),shape="circle open", size=1.5, col="chartreuse3")+
+        makes = sc[sc$isShotMade,]
+        misses = sc[!sc$isShotMade,]
+        hc + xlim(-25,25) + ylim(-4.75, 42.25) + geom_point(data = misses, mapping=aes(x=locationX, y=locationY),alpha=0.75,shape="cross", size=1.5, col="firebrick1")+
+          geom_point(data = makes, mapping=aes(x=locationX, y=locationY),shape="circle open", size=1.5, col="chartreuse3")+
           ggtitle(sctitle) + theme(plot.title = element_text(face="bold",size=30,hjust=0.5), legend.position = "none")
       }
     }
