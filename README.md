@@ -19,7 +19,7 @@ devtools::install_github("abresler/nbastatR")
 Once everything is setup, click 'Run App' or use the command runApp('NBAShotCharts') in the console.
 
 ### Examples
-![Stephen Curry Shot Chart](https://github.com/ho-ian/NbaShotCharts/tree/master/screenshots)
+![Stephen Curry Shot Chart](https://github.com/ho-ian/NbaShotCharts/tree/master/screenshots/1.png)
 ![Demar Derozan Playoff 2's](https://github.com/ho-ian/NbaShotCharts/blob/master/screenshots/2.png)
 
 ## Built With
